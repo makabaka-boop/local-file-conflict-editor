@@ -1,0 +1,1042 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Markdown 编辑器 · 单文件</title>
+<style>
+  :root {
+    --bg: #1e1f24; --panel: #26282f; --panel2: #2d2f37; --border: #3a3d47;
+    --text: #e6e7ea; --muted: #9aa0ad; --accent: #6aa6ff;
+    --green: #4cc38a; --amber: #e0a83d; --red: #e5604d; --blue: #6aa6ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 14px/1.6 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    display: flex; flex-direction: column;
+  }
+  header {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 15px; margin: 0 12px 0 0; font-weight: 600; }
+  button {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 5px 12px; cursor: pointer; font-size: 13px;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: #35548a; border-color: #4a73b5; color: #fff; }
+  button.primary:hover:not(:disabled) { background: #4066a5; color: #fff; }
+  button.danger { border-color: #8a4438; color: #f0a79b; }
+  #fileMeta { display: flex; align-items: center; gap: 8px; margin-left: 4px; }
+  #fileName { font-weight: 600; }
+  #permBadge {
+    font-size: 12px; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--border);
+    color: var(--muted); cursor: default;
+  }
+  #permBadge.granted { color: var(--green); border-color: #2e5b46; }
+  #permBadge.prompt, #permBadge.denied { color: var(--amber); border-color: #6e5826; cursor: pointer; }
+  .spacer { flex: 1; }
+  #fallbackBanner {
+    display: none; padding: 6px 12px; font-size: 13px;
+    background: #3a2f17; color: #f0cd8c; border-bottom: 1px solid #6e5826;
+  }
+  main { flex: 1; display: flex; min-height: 0; }
+  .pane { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .pane + .pane { border-left: 1px solid var(--border); }
+  .paneLabel {
+    padding: 4px 12px; font-size: 12px; color: var(--muted);
+    background: var(--panel); border-bottom: 1px solid var(--border);
+  }
+  textarea#editor {
+    flex: 1; width: 100%; resize: none; border: 0; outline: none;
+    background: var(--bg); color: var(--text); padding: 14px 18px;
+    font: 13px/1.7 "SF Mono", "Cascadia Code", Consolas, monospace;
+  }
+  #preview {
+    flex: 1; overflow: auto; padding: 14px 20px; background: var(--bg);
+  }
+  #preview h1, #preview h2, #preview h3 { line-height: 1.3; }
+  #preview h1 { border-bottom: 1px solid var(--border); padding-bottom: .3em; }
+  #preview h2 { border-bottom: 1px solid var(--border); padding-bottom: .25em; }
+  #preview code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; font-size: .9em; }
+  #preview pre { background: var(--panel2); padding: 12px 14px; border-radius: 8px; overflow: auto; }
+  #preview pre code { background: none; padding: 0; }
+  #preview blockquote { margin: .6em 0; padding: .2em 1em; color: var(--muted); border-left: 4px solid var(--border); }
+  #preview table { border-collapse: collapse; }
+  #preview th, #preview td { border: 1px solid var(--border); padding: 4px 10px; }
+  #preview img { max-width: 100%; }
+  body.previewOnly #paneEditor { display: none; }
+  body.editOnly #panePreview { display: none; }
+  footer {
+    display: flex; align-items: center; gap: 10px;
+    padding: 5px 12px; background: var(--panel); border-top: 1px solid var(--border);
+    font-size: 12.5px; color: var(--muted);
+  }
+  #dot { width: 9px; height: 9px; border-radius: 50%; background: #666; display: inline-block; }
+  #dot.dirty { background: var(--amber); }
+  #dot.saving { background: var(--blue); animation: pulse 1s infinite; }
+  #dot.saved { background: var(--green); }
+  #dot.conflict, #dot.error, #dot.denied { background: var(--red); }
+  #dot.external, #dot.restored, #dot.downloaded { background: var(--amber); }
+  @keyframes pulse { 50% { opacity: .25; } }
+  #draftToggle { color: var(--muted); }
+  #draftPanel {
+    display: none; border-top: 1px solid var(--border); background: var(--panel);
+    max-height: 38%; overflow: auto; padding: 10px 14px;
+  }
+  #draftPanel h2 { font-size: 13px; margin: 0 0 8px; color: var(--muted); font-weight: 600; }
+  .draftCard {
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 12px; margin-bottom: 8px; display: flex; align-items: center; gap: 12px;
+  }
+  .draftInfo { flex: 1; min-width: 0; }
+  .draftInfo .t { font-weight: 600; }
+  .draftInfo .v { color: var(--muted); font-size: 12px; }
+  .tag {
+    font-size: 11px; padding: 0 7px; border-radius: 9px; border: 1px solid var(--border);
+    color: var(--muted); margin-left: 6px;
+  }
+  .tag.native { color: var(--blue); border-color: #34507e; }
+  .tag.import { color: var(--amber); border-color: #6e5826; }
+  /* modal */
+  #modalOverlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,.55);
+    align-items: center; justify-content: center; z-index: 10;
+  }
+  #modalOverlay.show { display: flex; }
+  .modal {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    width: min(960px, 92vw); max-height: 88vh; display: flex; flex-direction: column;
+    padding: 16px 18px;
+  }
+  .modal h2 { margin: 0 0 4px; font-size: 16px; }
+  .modal p { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+  .compare { display: flex; gap: 12px; flex: 1; min-height: 0; }
+  .compare .col { flex: 1; display: flex; flex-direction: column; min-height: 220px; }
+  .compare label { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .compare textarea {
+    flex: 1; width: 100%; resize: none; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px;
+    font: 12px/1.55 Consolas, monospace;
+  }
+  .modalActions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 14px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body class="editOnly">
+
+<header>
+  <h1>📝 Markdown 编辑器</h1>
+  <button id="btnOpen">打开文件…</button>
+  <button id="btnSave" class="primary" disabled>保存 (Ctrl+S)</button>
+  <button id="btnSaveAs" disabled>另存为…</button>
+  <button id="btnImport">导入…</button>
+  <button id="btnDownload" disabled>下载副本</button>
+  <button id="btnNew">新建</button>
+  <div class="spacer"></div>
+  <div id="fileMeta">
+    <span id="fileName">未命名.md</span>
+    <span id="permBadge" class="hidden" title=""></span>
+  </div>
+  <button id="btnToggle">预览 / 编辑</button>
+</header>
+
+<div id="fallbackBanner"></div>
+
+<main>
+  <section class="pane" id="paneEditor">
+    <div class="paneLabel">Markdown</div>
+    <textarea id="editor" spellcheck="false" placeholder="# 在这里开始书写…"></textarea>
+  </section>
+  <section class="pane" id="panePreview">
+    <div class="paneLabel">预览</div>
+    <div id="preview"></div>
+  </section>
+</main>
+
+<footer>
+  <span id="dot" class=""></span>
+  <span id="statusText">就绪（导入或打开文件开始编辑）</span>
+  <span class="spacer" style="flex:1"></span>
+  <span id="savedAt"></span>
+  <a href="#" id="draftToggle">本地草稿</a>
+</footer>
+
+<div id="draftPanel">
+  <h2>未保存的本地草稿（IndexedDB）</h2>
+  <div id="draftList"></div>
+</div>
+
+<div id="modalOverlay">
+  <div class="modal" role="dialog" aria-modal="true">
+    <h2>文件已被外部修改</h2>
+    <p>磁盘上的文件在你打开之后发生了变化。写入已暂停，请对比两个版本并选择保留哪一个。</p>
+    <div class="compare">
+      <div class="col">
+        <label>磁盘版（外部修改后的当前内容）</label>
+        <textarea id="diskView" readonly></textarea>
+      </div>
+      <div class="col">
+        <label>草稿版（你在编辑器中未保存的内容）</label>
+        <textarea id="draftView" readonly></textarea>
+      </div>
+    </div>
+    <div class="modalActions">
+      <button id="btnConflictCancel">取消（暂不保存）</button>
+      <button id="btnUseDisk">使用磁盘版（丢弃草稿改动）</button>
+      <button id="btnUseDraft" class="primary">用草稿覆盖磁盘文件</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="fileInput" accept=".md,.markdown,.txt,text/markdown,text/plain" class="hidden">
+
+<!-- ===================== 核心逻辑（不依赖 DOM，测试直接提取此段） ===================== -->
+<script id="mde-core">
+(function (global) {
+  'use strict';
+
+  var MESSAGES = {
+    idle: '',
+    opening: '正在打开文件…',
+    dirty: '有未保存的修改',
+    saving: '正在保存…',
+    saved: '已保存到原文件',
+    conflict: '磁盘文件已被外部修改，写入已暂停，请选择保留版本',
+    denied: '文件写入权限未授予或已撤销；未保存草稿已保留，重新授权后需再次点击保存',
+    regranted: '已重新授权。请点击“保存”写回——保存前仍会重新读取并检查磁盘版本，不会自动覆盖',
+    writeError: '写入失败：{error}。未保存草稿已保留',
+    readError: '保存前重新读取失败：{error}。未保存草稿已保留',
+    external: '已采用磁盘版本，编辑器内容与磁盘一致',
+    cancelled: '已取消保存，磁盘文件未改动',
+    imported: '已导入文件，可编辑后下载副本；本环境不会把改动写回原文件',
+    downloaded: '已下载副本到本地，原文件未被修改',
+    restored: '已恢复未保存草稿（标注的是打开/导入时的文件版本，尚未写回磁盘）',
+    draftKept: '未保存草稿已保留在本地'
+  };
+
+  function now() { return Date.now(); }
+  function errText(e) { return (e && e.message) ? e.message : String(e); }
+
+  function uuid() {
+    if (global.crypto && typeof global.crypto.randomUUID === 'function') {
+      return global.crypto.randomUUID();
+    }
+    return 'draft-' + now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+  }
+
+  // SHA-256 内容摘要：打开时记录磁盘版摘要，每次保存前重读并对比
+  async function digest(text) {
+    var bytes = new TextEncoder().encode(text);
+    var hash = await global.crypto.subtle.digest('SHA-256', bytes);
+    var arr = new Uint8Array(hash), out = '';
+    for (var i = 0; i < arr.length; i++) out += arr[i].toString(16).padStart(2, '0');
+    return out;
+  }
+  function shortHash(h) { return h ? h.slice(0, 8) : '--------'; }
+
+  function supportsFileSystemAccess(win) {
+    win = win || (typeof global !== 'undefined' ? global : {});
+    return typeof win.showOpenFilePicker === 'function' &&
+           typeof win.showSaveFilePicker === 'function';
+  }
+
+  /* ---------------- 草稿存储 ---------------- */
+
+  function createMemoryDraftStore() {
+    var map = new Map();
+    return {
+      kind: 'memory',
+      async list() {
+        return Array.from(map.values()).sort(function (a, b) { return b.updatedAt - a.updatedAt; });
+      },
+      async get(id) { return map.has(id) ? map.get(id) : null; },
+      async put(rec) { map.set(rec.id, rec); },
+      async remove(id) { map.delete(id); }
+    };
+  }
+
+  function createIDBDraftStore() {
+    var DB_NAME = 'mde-drafts', STORE = 'drafts';
+    function openDB() {
+      return new Promise(function (resolve, reject) {
+        var req = global.indexedDB.open(DB_NAME, 1);
+        req.onupgradeneeded = function () {
+          if (!req.result.objectStoreNames.contains(STORE)) {
+            req.result.createObjectStore(STORE, { keyPath: 'id' });
+          }
+        };
+        req.onsuccess = function () { resolve(req.result); };
+        req.onerror = function () { reject(req.error); };
+      });
+    }
+    function request(mode, fn) {
+      return openDB().then(function (db) {
+        return new Promise(function (resolve, reject) {
+          var t = db.transaction(STORE, mode);
+          var req = fn(t.objectStore(STORE));
+          req.onsuccess = function () { resolve(req.result); };
+          req.onerror = function () { reject(req.error); };
+        });
+      });
+    }
+    return {
+      kind: 'idb',
+      async list() {
+        var rows = await request('readonly', function (s) { return s.getAll(); });
+        return rows.sort(function (a, b) { return b.updatedAt - a.updatedAt; });
+      },
+      async get(id) {
+        var rec = await request('readonly', function (s) { return s.get(id); });
+        return rec || null;
+      },
+      async put(rec) { await request('readwrite', function (s) { return s.put(rec); }); },
+      async remove(id) { await request('readwrite', function (s) { return s.delete(id); }); }
+    };
+  }
+
+  /* ---------------- 文件句柄适配器（可替换，便于测试） ---------------- */
+
+  // 生产环境：包装原生 FileSystemFileHandle
+  function createNativeAdapter(handle) {
+    return {
+      kind: 'native',
+      name: handle.name,
+      rawHandle: handle,
+      async queryPermission() {
+        if (typeof handle.queryPermission === 'function') {
+          return await handle.queryPermission({ mode: 'readwrite' });
+        }
+        try { await handle.getFile(); return 'granted'; }
+        catch (e) { return 'prompt'; }
+      },
+      async requestPermission() {
+        if (typeof handle.requestPermission === 'function') {
+          return await handle.requestPermission({ mode: 'readwrite' });
+        }
+        try { await handle.getFile(); return 'granted'; }
+        catch (e) { return 'denied'; }
+      },
+      async read() {
+        var file = await handle.getFile();
+        return { text: await file.text() };
+      },
+      async write(text) {
+        var writable = await handle.createWritable();
+        await writable.write(text);
+        await writable.close();
+      }
+    };
+  }
+
+  /* ---------------- 编辑会话 ---------------- */
+
+  function createSession(options) {
+    options = options || {};
+    var store = options.draftStore || createMemoryDraftStore();
+    var digestFn = options.digest || digest;
+    var autosaveDelay = options.autosaveDelay != null ? options.autosaveDelay : 400;
+    var timers = options.timers || {
+      setTimeout: function (fn, ms) { return global.setTimeout(fn, ms); },
+      clearTimeout: function (id) { return global.clearTimeout(id); }
+    };
+
+    var st = {
+      id: null,                 // 草稿记录 id
+      adapter: null,            // native 适配器；导入/新建时为 null（只能下载）
+      name: '未命名.md',
+      text: '',
+      baseText: '',             // 打开时（或上次保存后）的磁盘内容
+      baseDigest: null,         // 对应磁盘版本的 SHA-256
+      openedAt: null,
+      dirty: false,
+      saving: false,
+      status: 'idle',           // idle|opening|dirty|saving|saved|conflict|denied|error|external|cancelled|imported|downloaded|restored
+      message: '',
+      permission: null,         // granted|prompt|denied|null
+      canSaveToFile: false,
+      lastSavedAt: null,
+      lastPersistedAt: null
+    };
+
+    var seq = 0;                // 保存/打开序号：迟到的读取结果必须作废
+    var persistTimer = null;
+    var conflict = null;        // { seq, diskText, diskDigest, resolve }
+    var listeners = [];
+
+    function emit() {
+      var fns = listeners.slice();
+      for (var i = 0; i < fns.length; i++) {
+        try { fns[i](st); } catch (_) { /* 监听器异常不影响核心流程 */ }
+      }
+    }
+    function subscribe(fn) { listeners.push(fn); return function () {
+      var i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1);
+    }; }
+
+    function cancelTimer() {
+      if (persistTimer !== null) { timers.clearTimeout(persistTimer); persistTimer = null; }
+    }
+    function invalidatePending(reason) {
+      seq++;
+      if (conflict) { var c = conflict; conflict = null; c.resolve(reason || 'superseded'); }
+    }
+
+    // 仅持久化“未保存草稿”，记录其所属文件版本（baseText/baseDigest/openedAt）
+    async function persistDraft() {
+      cancelTimer();
+      if (!st.dirty) return false;
+      if (!st.id) st.id = uuid();
+      var rec = {
+        id: st.id,
+        adapterKind: st.adapter ? st.adapter.kind : (st.baseText !== '' || st.openedAt ? 'import' : null),
+        handle: st.adapter && st.adapter.rawHandle ? st.adapter.rawHandle : null,
+        name: st.name || '未命名.md',
+        text: st.text,
+        baseText: st.baseText,
+        baseDigest: st.baseDigest,
+        openedAt: st.openedAt || null,
+        updatedAt: now()
+      };
+      await store.put(rec);
+      st.lastPersistedAt = rec.updatedAt;
+      emit();
+      return true;
+    }
+
+    function schedulePersist() {
+      if (!st.dirty) { cancelTimer(); return; }
+      cancelTimer();
+      persistTimer = timers.setTimeout(function () {
+        persistTimer = null;
+        persistDraft()['catch'](function () { /* 页面关闭前还有 pagehide 兜底 */ });
+      }, autosaveDelay);
+    }
+
+    async function removeCurrentDraft() {
+      if (st.id) { try { await store.remove(st.id); } catch (_) {} st.id = null; }
+    }
+
+    function setText(text) {
+      if (text === st.text) return;
+      st.text = text;
+      st.dirty = text !== st.baseText;
+      if (st.dirty) {
+        st.status = 'dirty'; st.message = MESSAGES.dirty;
+      } else {
+        st.status = st.lastSavedAt ? 'saved' : (st.openedAt ? 'idle' : 'imported');
+        st.message = st.lastSavedAt ? MESSAGES.saved : (st.status === 'imported' ? MESSAGES.imported : '');
+      }
+      emit();
+      schedulePersist();
+    }
+
+    async function open(adapter) {
+      invalidatePending('superseded');
+      cancelTimer();
+      st.saving = false; st.status = 'opening'; st.message = MESSAGES.opening; emit();
+      var my = seq;
+
+      var result;
+      try {
+        result = await adapter.read();
+      } catch (e) {
+        if (my !== seq) return { ok: false, reason: 'superseded' };
+        st.status = 'error'; st.message = '打开文件失败：' + errText(e); emit();
+        throw e;
+      }
+      if (my !== seq) return { ok: false, reason: 'superseded' };
+      var sum = await digestFn(result.text);
+      if (my !== seq) return { ok: false, reason: 'superseded' };
+
+      st.id = uuid();            // 新会话的草稿彼此隔离
+      st.adapter = adapter;
+      st.name = adapter.name;
+      st.baseText = st.text = result.text;
+      st.baseDigest = sum;
+      st.openedAt = now();
+      st.dirty = false; st.saving = false;
+      st.lastSavedAt = null; st.lastPersistedAt = null;
+      st.canSaveToFile = true;
+      st.permission = 'granted';
+      st.status = 'idle'; st.message = '';
+      emit();
+      return { ok: true };
+    }
+
+    // 无 File System Access API 时：仅导入内容，可下载，绝不显示“已保存到原文件”
+    async function loadImported(name, text, kind) {
+      invalidatePending('superseded');
+      cancelTimer();
+      st.id = uuid();
+      st.adapter = null;
+      st.name = name || '未命名.md';
+      st.baseText = st.text = text;
+      st.baseDigest = await digestFn(text);
+      st.openedAt = now();
+      st.dirty = false; st.saving = false;
+      st.lastSavedAt = null;
+      st.canSaveToFile = false;
+      st.permission = null;
+      st.status = 'imported';
+      st.message = kind === 'new' ? '' : MESSAGES.imported;
+      emit();
+    }
+
+    async function saveAs(adapter) {
+      invalidatePending('superseded');
+      var my = seq;
+      st.saving = true; st.status = 'saving'; st.message = MESSAGES.saving; emit();
+      try {
+        await adapter.write(st.text);
+      } catch (e) {
+        if (my !== seq) return { ok: false, reason: 'superseded' };
+        st.saving = false; st.status = 'error';
+        st.message = MESSAGES.writeError.replace('{error}', errText(e));
+        emit(); await persistDraft();
+        return { ok: false, reason: 'write-error', error: e };
+      }
+      if (my !== seq) return { ok: false, reason: 'superseded' };
+      st.adapter = adapter; st.name = adapter.name;
+      st.baseText = st.text; st.baseDigest = await digestFn(st.text);
+      st.dirty = false; st.saving = false; st.lastSavedAt = now();
+      st.canSaveToFile = true; st.permission = 'granted';
+      st.status = 'saved'; st.message = MESSAGES.saved;
+      emit();
+      await removeCurrentDraft();
+      return { ok: true };
+    }
+
+    function markDownloaded() {
+      st.status = 'downloaded'; st.message = MESSAGES.downloaded;
+      emit();
+    }
+
+    async function refreshPermission() {
+      if (!st.adapter) { st.permission = null; return null; }
+      try { st.permission = await st.adapter.queryPermission(); }
+      catch (_) { st.permission = 'denied'; }
+      emit();
+      return st.permission;
+    }
+
+    // 用户主动重新授权：只更新授权状态，绝不触发自动保存
+    async function requestPermission() {
+      if (!st.adapter) return 'denied';
+      var p;
+      try { p = await st.adapter.requestPermission(); }
+      catch (_) { p = 'denied'; }
+      st.permission = p;
+      if (p === 'granted') st.message = MESSAGES.regranted;
+      emit();
+      return p;
+    }
+
+    // 核心保存流程：查权限 → 重读磁盘 → 摘要比对 → 冲突则暂停 → 写入
+    async function save() {
+      if (!st.adapter) return { ok: false, reason: 'no-adapter' };
+      if (!st.dirty) return { ok: true, skipped: true };
+
+      invalidatePending();
+      var my = seq;
+      st.saving = true; st.status = 'saving'; st.message = MESSAGES.saving; emit();
+
+      var perm;
+      try {
+        perm = await st.adapter.queryPermission();
+        if (my !== seq) return { ok: false, reason: 'superseded' };
+        if (perm !== 'granted') {
+          perm = await st.adapter.requestPermission();
+          if (my !== seq) return { ok: false, reason: 'superseded' };
+        }
+      } catch (e) {
+        if (my !== seq) return { ok: false, reason: 'superseded' };
+        perm = 'denied';
+      }
+      st.permission = perm;
+      if (perm !== 'granted') {
+        st.saving = false; st.status = 'denied'; st.message = MESSAGES.denied;
+        emit(); await persistDraft();
+        return { ok: false, reason: 'denied' };
+      }
+
+      var read;
+      try {
+        read = await st.adapter.read();
+      } catch (e) {
+        if (my !== seq) return { ok: false, reason: 'superseded' };
+        st.saving = false; st.status = 'error';
+        st.message = MESSAGES.readError.replace('{error}', errText(e));
+        emit(); await persistDraft();
+        return { ok: false, reason: 'read-error', error: e };
+      }
+      if (my !== seq) return { ok: false, reason: 'superseded' };
+      var diskDigest = await digestFn(read.text);
+      if (my !== seq) return { ok: false, reason: 'superseded' };
+
+      if (diskDigest !== st.baseDigest) {
+        // 外部修改：暂停写入，等待用户选择
+        st.status = 'conflict'; st.message = MESSAGES.conflict;
+        var decision = await new Promise(function (resolve) {
+          conflict = { seq: my, diskText: read.text, diskDigest: diskDigest, resolve: resolve };
+          emit();
+        });
+        if (decision === 'superseded' || my !== seq) {
+          return { ok: false, reason: 'superseded' };
+        }
+        if (decision === 'cancel') {
+          conflict = null;
+          st.status = st.dirty ? 'dirty' : 'idle';
+          st.message = st.dirty ? MESSAGES.cancelled : '';
+          emit();
+          return { ok: false, reason: 'cancelled' };
+        }
+        if (decision === 'disk') {
+          // 用户选择磁盘版：编辑器载入磁盘内容，草稿不写入
+          st.text = st.baseText = read.text;
+          st.baseDigest = diskDigest;
+          st.dirty = false; st.saving = false;
+          st.status = 'external'; st.message = MESSAGES.external;
+          conflict = null;
+          emit();
+          await removeCurrentDraft();
+          return { ok: false, reason: 'kept-disk' };
+        }
+        // decision === 'draft'：继续用草稿覆盖
+        conflict = null;
+      }
+
+      st.status = 'saving'; st.message = MESSAGES.saving; emit();
+      try {
+        await st.adapter.write(st.text);
+      } catch (e) {
+        if (my !== seq) return { ok: false, reason: 'superseded' };
+        st.saving = false; st.status = 'error';
+        st.message = MESSAGES.writeError.replace('{error}', errText(e));
+        emit(); await persistDraft();
+        return { ok: false, reason: 'write-error', error: e };
+      }
+      if (my !== seq) return { ok: false, reason: 'superseded' };
+
+      st.baseText = st.text;
+      st.baseDigest = await digestFn(st.text);
+      st.dirty = false; st.saving = false; st.lastSavedAt = now();
+      st.status = 'saved'; st.message = MESSAGES.saved;
+      emit();
+      await removeCurrentDraft();
+      return { ok: true };
+    }
+
+    function pendingConflict() {
+      if (!conflict || conflict.seq !== seq) return null;
+      return { diskText: conflict.diskText, diskDigest: conflict.diskDigest };
+    }
+    function resolveConflict(decision) {
+      if (!conflict || conflict.seq !== seq) return false;
+      var c = conflict; conflict = null; c.resolve(decision);
+      return true;
+    }
+
+    // 从 IndexedDB 恢复草稿：native 句柄重新包成适配器，但权限/磁盘版本一切以保存时重新检查为准
+    async function restoreDraft(rec) {
+      invalidatePending('superseded');
+      cancelTimer();
+      var adapter = null;
+      if (rec && rec.adapterKind === 'native' && rec.handle) {
+        adapter = createNativeAdapter(rec.handle);
+      }
+      st.id = rec.id;
+      st.adapter = adapter;
+      st.name = rec.name || '未命名.md';
+      st.text = rec.text || '';
+      st.baseText = rec.baseText || '';
+      st.baseDigest = rec.baseDigest || null;
+      st.openedAt = rec.openedAt || null;
+      st.dirty = st.text !== st.baseText;
+      st.saving = false;
+      st.lastSavedAt = null;
+      st.lastPersistedAt = rec.updatedAt || null;
+      st.canSaveToFile = !!adapter;
+      st.permission = adapter ? 'prompt' : null;
+      st.status = 'restored'; st.message = MESSAGES.restored;
+      emit();
+      schedulePersist();   // 刷新 updatedAt，草稿继续保留
+      return getState();
+    }
+
+    function getState() { return st; }
+
+    return {
+      messages: MESSAGES,
+      subscribe: subscribe,
+      getState: getState,
+      open: open,
+      setText: setText,
+      save: save,
+      saveAs: saveAs,
+      loadImported: loadImported,
+      markDownloaded: markDownloaded,
+      restoreDraft: restoreDraft,
+      refreshPermission: refreshPermission,
+      requestPermission: requestPermission,
+      pendingConflict: pendingConflict,
+      resolveConflict: resolveConflict,
+      persistDraft: persistDraft,
+      listDrafts: function () { return store.list(); },
+      getDraft: function (id) { return store.get(id); },
+      removeDraft: function (id) { return store.remove(id); }
+    };
+  }
+
+  global.MDE = global.MDE || {};
+  global.MDE.core = {
+    MESSAGES: MESSAGES,
+    digest: digest,
+    shortHash: shortHash,
+    uuid: uuid,
+    supportsFileSystemAccess: supportsFileSystemAccess,
+    createMemoryDraftStore: createMemoryDraftStore,
+    createIDBDraftStore: createIDBDraftStore,
+    createNativeAdapter: createNativeAdapter,
+    createSession: createSession
+  };
+})(window);
+</script>
+
+<!-- ===================== UI 引导（仅浏览器执行） ===================== -->
+<script id="mde-ui">
+(function () {
+  'use strict';
+  var editorEl = document.getElementById('editor');
+  if (!editorEl) return;
+
+  var core = window.MDE.core;
+  var SUPPORTED = core.supportsFileSystemAccess(window);
+
+  var $ = function (id) { return document.getElementById(id); };
+  var editor = $('editor'), preview = $('preview'), statusText = $('statusText'),
+      dot = $('dot'), savedAtEl = $('savedAt'), fileNameEl = $('fileName'),
+      permBadge = $('permBadge'), modalOverlay = $('modalOverlay'),
+      diskView = $('diskView'), draftView = $('draftView'),
+      btnSave = $('btnSave'), btnSaveAs = $('btnSaveAs'), btnDownload = $('btnDownload'),
+      btnOpen = $('btnOpen'), btnImport = $('btnImport'),
+      draftPanel = $('draftPanel'), draftList = $('draftList'),
+      fileInput = $('fileInput'), banner = $('fallbackBanner');
+
+  var store = ('indexedDB' in window) ? core.createIDBDraftStore() : core.createMemoryDraftStore();
+  var session = core.createSession({ draftStore: store });
+
+  /* ---------- Markdown 渲染（轻量实现） ---------- */
+  function escapeHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function safeUrl(url) {
+    var u = String(url || '').trim();
+    if (/^(https?:|mailto:|\/|#|\.\/|\.\.\/)/i.test(u)) return encodeURI(u);
+    return '#';
+  }
+  function renderInline(text) {
+    var codes = [];
+    text = text.replace(/`([^`]+)`/g, function (_, c) {
+      codes.push('<code>' + escapeHtml(c) + '</code>');
+      return ' ' + (codes.length - 1) + ' ';
+    });
+    text = escapeHtml(text);
+    text = text.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;([^&]*)&quot;)?\)/g,
+      function (_, alt, url, title) {
+        return '<img src="' + safeUrl(url) + '" alt="' + alt + '"' + (title ? ' title="' + title + '"' : '') + '>';
+      });
+    text = text.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g,
+      function (_, label, url) {
+        return '<a href="' + safeUrl(url) + '" target="_blank" rel="noopener noreferrer">' + label + '</a>';
+      });
+    text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    text = text.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+    text = text.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+    text = text.replace(/ (\d+) /g, function (_, i) { return codes[Number(i)]; });
+    return text;
+  }
+  function renderMarkdown(src) {
+    var lines = String(src).replace(/\r\n/g, '\n').split('\n');
+    var html = [], i = 0;
+    function listBlock(ordered) {
+      var items = [];
+      var re = ordered ? /^\s*\d+[.)]\s+(.*)$/ : /^\s*[-*+]\s+(.*)$/;
+      while (i < lines.length && re.test(lines[i])) {
+        items.push('<li>' + renderInline(lines[i].replace(re, '$1')) + '</li>');
+        i++;
+      }
+      return (ordered ? '<ol>' : '<ul>') + items.join('') + (ordered ? '</ol>' : '</ul>');
+    }
+    while (i < lines.length) {
+      var line = lines[i];
+      if (/^```/.test(line)) {
+        var buf = [], i0 = i + 1; i++;
+        while (i < lines.length && !/^```/.test(lines[i])) { buf.push(lines[i]); i++; }
+        if (i < lines.length) i++;
+        html.push('<pre><code>' + escapeHtml(buf.join('\n')) + '</code></pre>');
+        continue;
+      }
+      if (/^\s*$/.test(line)) { i++; continue; }
+      var hm = /^(#{1,6})\s+(.*)$/.exec(line);
+      if (hm) { var lvl = hm[1].length; html.push('<h' + lvl + '>' + renderInline(hm[2]) + '</h' + lvl + '>'); i++; continue; }
+      if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) { html.push('<hr>'); i++; continue; }
+      if (/^\s*>\s?/.test(line)) {
+        var q = [];
+        while (i < lines.length && /^\s*>\s?/.test(lines[i])) { q.push(lines[i].replace(/^\s*>\s?/, '')); i++; }
+        html.push('<blockquote>' + renderInline(q.join('<br>')) + '</blockquote>');
+        continue;
+      }
+      if (/^\s*[-*+]\s+/.test(line)) { html.push(listBlock(false)); continue; }
+      if (/^\s*\d+[.)]\s+/.test(line)) { html.push(listBlock(true)); continue; }
+      var para = [line]; i++;
+      while (i < lines.length && !/^\s*$/.test(lines[i]) && !/^(#{1,6}\s|```|>\s?|[-*+]\s|\d+[.)]\s)/.test(lines[i])) {
+        para.push(lines[i]); i++;
+      }
+      html.push('<p>' + renderInline(para.join('<br>')) + '</p>');
+    }
+    return html.join('\n');
+  }
+
+  /* ---------- 渲染刷新 ---------- */
+  var renderTimer = null;
+  function schedulePreview() {
+    clearTimeout(renderTimer);
+    renderTimer = setTimeout(function () { preview.innerHTML = renderMarkdown(editor.value); }, 120);
+  }
+  function fmtTime(ts) {
+    if (!ts) return '';
+    return new Date(ts).toLocaleString('zh-CN', { hour12: false });
+  }
+
+  function render(s) {
+    if (document.activeElement !== editor && editor.value !== s.text) editor.value = s.text;
+    schedulePreview();
+    fileNameEl.textContent = s.name;
+    statusText.textContent = s.message || '就绪';
+    dot.className = s.status;
+    savedAtEl.textContent = s.lastSavedAt ? '上次保存：' + fmtTime(s.lastSavedAt) : '';
+    btnSave.disabled = !s.adapter || s.saving;
+    btnSaveAs.disabled = s.saving;
+    btnDownload.disabled = s.text === '' && !s.adapter;
+
+    if (s.adapter) {
+      permBadge.classList.remove('hidden');
+      var p = s.permission || 'prompt';
+      permBadge.className = p;
+      if (p === 'granted') {
+        permBadge.textContent = '已授权';
+        permBadge.onclick = null;
+        permBadge.style.cursor = 'default';
+      } else {
+        permBadge.textContent = p === 'denied' ? '授权已撤销，点击重新授权' : '点击授权写回';
+        permBadge.style.cursor = 'pointer';
+        permBadge.onclick = function () { session.requestPermission(); };
+      }
+    } else {
+      permBadge.classList.add('hidden');
+      permBadge.onclick = null;
+    }
+
+    var c = session.pendingConflict();
+    if (s.status === 'conflict' && c) {
+      diskView.value = c.diskText;
+      draftView.value = s.text;
+      modalOverlay.classList.add('show');
+    } else {
+      modalOverlay.classList.remove('show');
+    }
+  }
+  session.subscribe(render);
+
+  /* ---------- 草稿面板 ---------- */
+  async function refreshDrafts() {
+    var drafts = await session.listDrafts();
+    draftList.innerHTML = '';
+    if (drafts.length === 0) {
+      draftPanel.style.display = 'none';
+      return;
+    }
+    draftPanel.style.display = 'block';
+    drafts.forEach(function (rec) {
+      var card = document.createElement('div');
+      card.className = 'draftCard';
+      var kindLabel, kindClass;
+      if (rec.adapterKind === 'native') {
+        kindLabel = '本地文件 · 需重新授权'; kindClass = 'native';
+      } else if (rec.adapterKind === 'import') {
+        kindLabel = '导入文件 · 仅可下载'; kindClass = 'import';
+      } else {
+        kindLabel = '未命名 · 仅可下载'; kindClass = 'import';
+      }
+      var baseDesc = rec.baseDigest
+        ? '所属文件版本：打开时版本 v' + core.shortHash(rec.baseDigest) + '（' + fmtTime(rec.openedAt) + '）'
+        : '所属版本：导入时内容';
+      card.innerHTML =
+        '<div class="draftInfo">' +
+          '<div class="t">' + escapeHtml(rec.name) + '<span class="tag ' + kindClass + '">' + kindLabel + '</span></div>' +
+          '<div class="v">' + escapeHtml(baseDesc) + '</div>' +
+          '<div class="v">草稿保存于 ' + fmtTime(rec.updatedAt) + ' · ' +
+            rec.text.length + ' 字符' +
+            (rec.text === rec.baseText ? '' : '，相对该版本有修改') + '</div>' +
+        '</div>';
+      var b1 = document.createElement('button');
+      b1.textContent = '恢复';
+      b1.onclick = async function () {
+        if (rec.adapterKind === 'native') {
+          // 明确提示：恢复后不会自动覆盖磁盘较新版本
+          if (!confirm('恢复后需要重新授权，且保存前会重新读取磁盘文件；若磁盘版本较新，会再次请你确认。继续恢复？')) return;
+        }
+        await session.restoreDraft(rec);
+        await refreshDrafts();
+      };
+      var b2 = document.createElement('button');
+      b2.textContent = '删除';
+      b2.className = 'danger';
+      b2.onclick = async function () {
+        if (!confirm('删除这份本地草稿？')) return;
+        await session.removeDraft(rec.id);
+        await refreshDrafts();
+      };
+      card.appendChild(b1); card.appendChild(b2);
+      draftList.appendChild(card);
+    });
+  }
+  $('draftToggle').addEventListener('click', function (e) {
+    e.preventDefault();
+    if (draftPanel.style.display === 'block') draftPanel.style.display = 'none';
+    else refreshDrafts();
+  });
+
+  /* ---------- 文件操作 ---------- */
+  btnOpen.addEventListener('click', async function () {
+    var s = session.getState();
+    if (s.dirty && !confirm('当前有未保存修改（已自动保留本地草稿），打开其他文件将切换会话。继续？')) return;
+    try {
+      var handles = await window.showOpenFilePicker({
+        multiple: false,
+        types: [{ description: 'Markdown', accept: { 'text/markdown': ['.md', '.markdown'], 'text/plain': ['.txt'] } }]
+      });
+      await session.open(core.createNativeAdapter(handles[0]));
+    } catch (e) { if (e.name !== 'AbortError') alert('打开失败：' + (e.message || e)); }
+  });
+
+  btnSave.addEventListener('click', async function () {
+    await session.save();
+    await refreshDrafts();
+  });
+
+  btnSaveAs.addEventListener('click', async function () {
+    try {
+      var h = await window.showSaveFilePicker({
+        suggestedName: session.getState().name || '未命名.md',
+        types: [{ description: 'Markdown', accept: { 'text/markdown': ['.md'] } }]
+      });
+      await session.saveAs(core.createNativeAdapter(h));
+    } catch (e) { if (e.name !== 'AbortError') alert('另存失败：' + (e.message || e)); }
+    await refreshDrafts();
+  });
+
+  btnImport.addEventListener('click', function () { fileInput.click(); });
+  fileInput.addEventListener('change', async function () {
+    var f = fileInput.files && fileInput.files[0];
+    if (!f) return;
+    var text = await f.text();
+    await session.loadImported(f.name, text, 'import');
+    fileInput.value = '';
+    await refreshDrafts();
+  });
+
+  function downloadText(name, text) {
+    var blob = new Blob([text], { type: 'text/markdown;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = name || '未命名.md';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+  btnDownload.addEventListener('click', function () {
+    var s = session.getState();
+    downloadText(s.name, s.text);
+    session.markDownloaded();
+  });
+
+  $('btnNew').addEventListener('click', async function () {
+    var s = session.getState();
+    if (s.dirty && !confirm('当前有未保存修改（已保留本地草稿），确定新建？')) return;
+    editor.value = '';
+    await session.loadImported('未命名.md', '', 'new');
+    await refreshDrafts();
+    editor.focus();
+  });
+
+  /* ---------- 冲突弹窗 ---------- */
+  $('btnUseDraft').addEventListener('click', function () { session.resolveConflict('draft'); });
+  $('btnUseDisk').addEventListener('click', function () {
+    if (!confirm('用磁盘版替换编辑器内容？你当前未保存的草稿改动将被放弃。')) return;
+    session.resolveConflict('disk');
+    refreshDrafts();
+  });
+  $('btnConflictCancel').addEventListener('click', function () { session.resolveConflict('cancel'); });
+
+  /* ---------- 编辑 / 快捷键 / 关闭兜底 ---------- */
+  editor.addEventListener('input', function () {
+    session.setText(editor.value);
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      var s = session.getState();
+      if (s.adapter) { btnSave.click(); } else { btnDownload.click(); }
+    }
+  });
+
+  $('btnToggle').addEventListener('click', function () {
+    var body = document.body;
+    if (body.classList.contains('editOnly')) {
+      body.classList.remove('editOnly'); body.classList.add('previewOnly');
+    } else if (body.classList.contains('previewOnly')) {
+      body.classList.remove('previewOnly');
+    } else {
+      body.classList.add('editOnly');
+    }
+  });
+
+  window.addEventListener('focus', function () { session.refreshPermission(); });
+
+  // 页面意外关闭前，把未保存草稿同步尝试写入 IndexedDB
+  function flushOnHide() {
+    var s = session.getState();
+    if (s.dirty) { try { session.persistDraft(); } catch (_) {} }
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden') flushOnHide();
+  });
+  window.addEventListener('pagehide', flushOnHide);
+  window.addEventListener('beforeunload', function (e) {
+    flushOnHide();
+    if (session.getState().dirty) { e.preventDefault(); e.returnValue = ''; return ''; }
+  });
+
+  /* ---------- 降级模式 ---------- */
+  if (!SUPPORTED) {
+    btnOpen.classList.add('hidden');
+    btnSave.classList.add('hidden');
+    btnSaveAs.classList.add('hidden');
+    banner.style.display = 'block';
+    banner.textContent = '当前浏览器不支持 File System Access API：可以导入文件并下载编辑结果，但无法直接写回原文件（推荐使用最新版 Chrome / Edge 并通过 localhost 或 https 打开）。';
+  }
+
+  /* ---------- 启动 ---------- */
+  render(session.getState());
+  refreshDrafts();
+})();
+</script>
+</body>
+</html>

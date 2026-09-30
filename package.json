@@ -1,0 +1,9 @@
+{
+  "name": "mde-single-file",
+  "version": "1.0.0",
+  "description": "浏览器内单文件 Markdown 编辑器（File System Access API + IndexedDB 草稿）",
+  "scripts": {
+    "test": "node --test"
+  },
+  "private": true
+}
